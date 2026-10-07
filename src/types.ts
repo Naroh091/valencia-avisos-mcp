@@ -56,4 +56,11 @@ export interface CreateFields {
   correoElectronico: string;
   idDispositivo: string;
   categoria: string;
+  // Campos de dispositivo que la app también manda en cada aviso.
+  imei?: string;
+  model?: string;
+  tipo?: string;
+  token?: string;
+  idioma?: string;
+  appVersion?: string;
 }

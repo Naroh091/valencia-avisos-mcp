@@ -24,7 +24,11 @@ export const BASIC_AUTH =
   process.env.VALENCIA_AVISOS_BASIC_AUTH ?? "Basic YXBwOmFwcA==";
 
 /** Versión que declara este cliente al registrar el dispositivo. */
-export const APP_VERSION = process.env.VALENCIA_AVISOS_APP_VERSION ?? "0.1.0";
+// La app manda getLongVersionCode() (AppValencia 2.4.1 = 202606230), no el versionName.
+export const APP_VERSION = process.env.VALENCIA_AVISOS_APP_VERSION ?? "202606230";
+
+/** "model" que declara el dispositivo (la app manda Build.MANUFACTURER + MODEL). */
+export const DEVICE_MODEL = process.env.VALENCIA_AVISOS_DEVICE_MODEL ?? "Google Pixel 8";
 
 /** Geocoder municipal (ArcGIS, sin auth). */
 export const GEOCODER_BASE =
