@@ -34,8 +34,11 @@ async function parseBody(res: Response): Promise<unknown> {
 export class ValenciaClient {
   /** GET con Basic + api=2&lang (como Client.get de la app). */
   async get<T = unknown>(path: string, lang = "es"): Promise<T> {
-    const sep = path.includes("?") ? "&" : "?";
-    const url = new URL(`${sep}api=2&lang=${lang}`, new URL(path, API_BASE)).toString();
+    // Ojo: new URL("?x", base) REEMPLAZA la query de base, así que se añade con searchParams.
+    const u = new URL(path, API_BASE);
+    u.searchParams.set("api", "2");
+    u.searchParams.set("lang", lang);
+    const url = u.toString();
     const res = await fetch(url, { headers: { Authorization: BASIC_AUTH } });
     const body = await parseBody(res);
     if (!res.ok) throw new ValenciaApiError(res.status, url, body);

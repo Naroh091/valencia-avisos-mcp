@@ -2,7 +2,8 @@
  * Núcleo: funciones de alto nivel sobre viaPublica.
  * Reutilizadas por el servidor MCP y por el CLI.
  */
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { APP_VERSION, DEVICE_MODEL } from "./config.js";
 import { ValenciaClient } from "./client.js";
 import {
   langInt,
@@ -31,7 +32,9 @@ export async function getIdentity(): Promise<CitizenIdentity | null> {
 }
 
 export async function setIdentity(identity: CitizenIdentity): Promise<{ saved: boolean }> {
-  await saveIdentity(identity);
+  // Conserva deviceId/fcmToken/imei: re-guardar contacto no debe des-registrar el dispositivo.
+  const stored = await loadIdentity();
+  await saveIdentity({ ...(stored ?? {}), ...identity });
   return { saved: true };
 }
 
@@ -48,6 +51,7 @@ export async function resolveIdentity(override?: {
     lang: override?.lang ?? stored?.lang ?? "es",
     deviceId: stored?.deviceId,
     fcmToken: stored?.fcmToken,
+    imei: stored?.imei,
   };
   const errors = validateIdentity(merged);
   if (errors.length) {
@@ -63,19 +67,40 @@ export async function resolveIdentity(override?: {
  */
 export async function registerDevice(client: ValenciaClient): Promise<{ deviceId: string }> {
   const stored = (await loadIdentity()) ?? { lang: "es" as const };
-  const fields: Record<string, string> = {
-    imei: `mcp-${randomUUID().replace(/-/g, "").slice(0, 16)}`,
-    model: "valencia-avisos-mcp",
-    tipo: "2",
-    token: stored.fcmToken ?? "",
-    idioma: String(langInt(stored.lang ?? "es")),
-    appVersion: "0.1.0",
-  };
+  // Desde AppValencia 2.x el servidor responde 400 si `token` va vacío: la app
+  // siempre manda un token FCM. Sin Firebase generamos uno con la misma forma
+  // (<22 chars>:APA91b<134 chars>) y lo guardamos para reutilizarlo.
+  const imei = stored.imei ?? appUniqueId();
+  const fcmToken = stored.fcmToken ?? syntheticFcmToken();
+  const fields: Record<string, string> = deviceFields({ ...stored, imei, fcmToken });
   const res = await client.postForm<string>("dispositivos", fields);
   const deviceId = String(res ?? "").replace(/\n/g, "").trim();
   if (!deviceId) throw new Error("El servidor no devolvió idDispositivo.");
-  await saveIdentity({ ...stored, deviceId });
+  await saveIdentity({ ...stored, imei, fcmToken, deviceId });
   return { deviceId };
+}
+
+/** Campos de dispositivo que la app añade al registro y a cada aviso (DataLayer/ServerUtilities). */
+export function deviceFields(idn: { imei?: string; fcmToken?: string; lang?: "es" | "va" }): Record<string, string> {
+  return {
+    imei: idn.imei ?? appUniqueId(),
+    model: DEVICE_MODEL,
+    tipo: "2",
+    token: idn.fcmToken ?? "",
+    idioma: String(langInt(idn.lang ?? "es")),
+    appVersion: APP_VERSION,
+  };
+}
+
+/** Formato de Utils.getUniqueID: hex(hash(android_id)) en bloques de 4 + sufijo fijo "a32e-6eb2". */
+function appUniqueId(): string {
+  const h = randomBytes(4).toString("hex");
+  return `${h.slice(0, 4)}-${h.slice(4, 8)}-a32e-6eb2`;
+}
+
+function syntheticFcmToken(): string {
+  const b64 = (n: number, len: number) => randomBytes(n).toString("base64url").slice(0, len);
+  return `${b64(20, 22)}:APA91b${b64(120, 134)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -198,6 +223,7 @@ export async function buildCreateFields(
   input: CreateAvisoInput,
   deviceId: string,
   contact: { phone: string; email: string },
+  device?: { imei?: string; fcmToken?: string; lang?: "es" | "va" },
 ): Promise<CreateFields> {
   return {
     descripcion: input.description,
@@ -207,6 +233,7 @@ export async function buildCreateFields(
     correoElectronico: contact.email,
     idDispositivo: deviceId,
     categoria: input.categoria,
+    ...deviceFields(device ?? {}),
   };
 }
 
@@ -223,6 +250,7 @@ export async function createAviso(client: ValenciaClient, input: CreateAvisoInpu
     input,
     idn.deviceId,
     { phone: (idn.userPhone ?? "").trim(), email: (idn.userEmail ?? "").trim() },
+    idn,
   );
   const files = (input.image_paths ?? []).map((p, i) => ({ field: `imagen${i + 1}`, path: p }));
   if (!input.confirm) {
@@ -327,6 +355,7 @@ export async function createAvisoFromPhoto(
     correoElectronico: (idn.userEmail ?? "").trim(),
     idDispositivo: idn.deviceId,
     categoria: input.categoria,
+    ...deviceFields(idn),
   };
   const files = [{ field: "imagen1", path: saved_image_path }];
   const endpoint = input.fuente ? "viaPublica/fuentes" : "viaPublica";

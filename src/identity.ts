@@ -21,6 +21,8 @@ export interface CitizenIdentity {
   deviceId?: string;
   /** Token FCM del dispositivo (la app lo usa para el detalle; opcional aquí). */
   fcmToken?: string;
+  /** "imei" enviado al registrar (formato Utils.getUniqueID de la app); se reutiliza en cada aviso. */
+  imei?: string;
 }
 
 // Regex copiados del formulario de la app (NotificarIncidenciaActivity).
